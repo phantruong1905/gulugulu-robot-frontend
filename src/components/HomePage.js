@@ -1,16 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
-const fetchStockDataForSymbol = async (symbol) => {
-  try {
-    const apiBase = "https://qgfhaujnqa.execute-api.ap-southeast-2.amazonaws.com";
-    const response = await axios.get(`${apiBase}/get-symbol-details?symbol=${symbol}`);
-    return response.data;
-  } catch (err) {
-    console.error(`Error fetching data for ${symbol}:`, err);
-    return null;
-  }
-};
+
 
 const formatDate = (dateString) => {
   const date = new Date(dateString);
@@ -18,6 +9,27 @@ const formatDate = (dateString) => {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const year = date.getFullYear();
   return `${day}/${month}/${year}`;
+};
+
+const fetchStockDataForSymbol = async (symbol, retries = 3) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const apiBase = process.env.REACT_APP_API_BASE;
+      const response = await axios.get(`${apiBase}/get-symbol-details?symbol=${symbol}`, {
+        timeout: 8000
+      });
+      return response.data;
+    } catch (err) {
+      console.error(`Attempt ${attempt} failed for ${symbol}:`, err.message);
+      
+      if (attempt === retries) {
+        console.error(`All attempts failed for ${symbol}`);
+        return null;
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    }
+  }
 };
 
 const processAllTrades = async (trades = []) => {
@@ -56,10 +68,12 @@ const processAllTrades = async (trades = []) => {
   const today = new Date();
   const symbols = Object.keys(buyMap);
 
+
+
   // Fetch all stock data in parallel
   const stockDataMap = {};
   await Promise.all(symbols.map(async (sym) => {
-    const data = await fetchStockDataForSymbol(sym);
+    const data = await fetchStockDataForSymbol(sym); // Now has retries
     stockDataMap[sym] = data;
   }));
 
@@ -175,7 +189,7 @@ const calculateTradingMetrics = () => {
       setError(null);
       
       // Hardcoded dev API
-      const apiBase = "https://qgfhaujnqa.execute-api.ap-southeast-2.amazonaws.com";
+      const apiBase = process.env.REACT_APP_API_BASE;
       const response = await axios.get(`${apiBase}/fetch-latest-buys`, {
         headers: {
           'Content-Type': 'application/json',
@@ -222,7 +236,7 @@ const calculateTradingMetrics = () => {
       fetchLatestBuys();
     } else {
       axios
-        .get("https://qgfhaujnqa.execute-api.ap-southeast-2.amazonaws.com/fetch_trades_history")
+        .get(`${process.env.REACT_APP_API_BASE}/fetch_trades_history`) // Updated line
         .then(async (res) => {
           const trades = Array.isArray(res.data) ? res.data : res.data?.trades || [];
           const processedTrades = await processAllTrades(trades);
